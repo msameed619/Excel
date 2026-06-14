@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Excel Live AI Engine</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary: #107c41; /* Clean Excel Green */
+      --primary-hover: #0b5930;
+      --bg: #f8fafc;
+      --chat-bg: #ffffff;
+      --border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --bubble-user: #e2f0d9;
+      --bubble-ai: #f1f5f9;
+      --healing: #d97706; /* Amber for Auto-Healing status */
+      --danger: #ef4444; /* Red for Undo actions */
+    }
+    
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+      margin: 0; 
+      background: var(--bg); 
+      display: flex; 
+      flex-direction: column; 
+      height: 100vh; 
+      color: var(--text-main);
+      font-size: 13px;
+    }
+    
+    .header { 
+      background: #0f172a; 
+      color: white; 
+      padding: 14px 18px; 
+      font-weight: 600; 
+      font-size: 15px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: space-between;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header i {
+      color: #34d399;
+    }
+
+    .btn-undo {
+      background: var(--danger);
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: bold;
+      border-radius: 4px;
+      cursor: pointer;
+      display: none; 
+      align-items: center;
+      gap: 5px;
+    }
+
+    .btn-undo:hover {
+      background: #dc2626;
+    }
+
+    #chat-container { 
+      flex-grow: 1; 
+      overflow-y: auto; 
+      padding: 15px; 
+      display: flex; 
+      flex-direction: column; 
+      gap: 12px; 
+    }
+    
+    .bubble { 
+      max-width: 85%; 
+      padding: 10px 14px; 
+      border-radius: 12px; 
+      line-height: 1.5; 
+      word-wrap: break-word;
+    }
+    
+    .user { 
+      align-self: flex-end; 
+      background: var(--bubble-user); 
+      color: var(--text-main); 
+      border-bottom-right-radius: 2px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+    
+    .ai { 
+      align-self: flex-start; 
+      background: var(--chat-bg); 
+      border: 1px solid var(--border); 
+      color: var(--text-main); 
+      border-bottom-left-radius: 2px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+    }
+
+    .system {
+      align-self: center;
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      color: #78350f;
+      font-size: 11.5px;
+      border-radius: 6px;
+      text-align: center;
+      max-width: 95%;
+      padding: 6px 12px;
+    }
+    
+    .task-card { 
+      background: #f8fafc; 
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--primary); 
+      padding: 12px; 
+      margin-top: 10px; 
+      border-radius: 6px; 
+      text-align: left;
+    }
+
+    .task-card.failed-state {
+      border-left-color: #ef4444;
+    }
+
+    .task-card.healing-state {
+      border-left-color: var(--healing);
+    }
+
+    .task-title {
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: var(--text-main);
+    }
+
+    .code-accordion {
+      margin-top: 8px;
+    }
+
+    .code-toggle {
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      user-select: none;
+    }
+
+    .code-toggle:hover {
+      color: var(--primary);
+    }
+
+    .code-block {
+      display: none;
+      background: #1e293b;
+      color: #f8fafc;
+      font-family: monospace;
+      font-size: 11px;
+      padding: 8px;
+      border-radius: 4px;
+      margin-top: 6px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      border: 1px solid #334155;
+    }
+    
+    .btn-run { 
+      background: var(--primary); 
+      color: white; 
+      border: none;
+      padding: 8px; 
+      width: 100%; 
+      border-radius: 6px; 
+      cursor: pointer; 
+      font-weight: bold; 
+      margin-top: 8px; 
+      font-size: 12px;
+      transition: background 0.2s;
+    }
+
+    .btn-run:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-run.healing {
+      background: var(--healing);
+    }
+
+    .btn-run.corrected {
+      background: #2563eb; 
+    }
+
+    .btn-run.corrected:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-run:disabled {
+      background: #cbd5e1;
+      color: #64748b;
+      cursor: not-allowed;
+    }
+    
+    .footer { 
+      padding: 12px 15px; 
+      background: white; 
+      border-top: 1px solid var(--border); 
+    }
+    
+    .input-wrapper { 
+      display: flex; 
+      background: #f1f5f9; 
+      border-radius: 18px; 
+      padding: 6px 12px; 
+      align-items: flex-end; 
+      gap: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .input-wrapper:focus-within {
+      border-color: var(--primary);
+      background: white;
+    }
+    
+    textarea { 
+      flex-grow: 1; 
+      border: none; 
+      background: transparent; 
+      padding: 6px 0; 
+      outline: none; 
+      font-size: 13.5px;
+      resize: none;
+      height: 20px;
+      max-height: 80px;
+      line-height: 1.4;
+    }
+
+    .icon-btn {
+      color: #64748b;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 6px;
+      border-radius: 50%;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .icon-btn:hover {
+      background: #e2e8f0;
+      color: var(--text-main);
+    }
+
+    .icon-btn.send-btn {
+      color: var(--primary);
+    }
+
+    .icon-btn.send-btn:hover {
+      background: #e2f0d9;
+      color: var(--primary-hover);
+    }
+    
+    #loader { 
+      display: none; 
+      padding: 10px 15px; 
+      color: var(--primary); 
+      font-size: 11.5px; 
+      font-weight: 600; 
+      border-top: 1px solid var(--border);
+      background: #f0fdf4;
+      align-items: center;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-title">
+      <i class="fas fa-file-excel"></i> EXCEL LIVE ENGINE
+    </div>
+    <!-- Safe-Audit Undo Trigger -->
+    <button id="undo-btn" class="btn-undo"><i class="fas fa-undo"></i> Undo Last Run</button>
+  </div>
+
+  <div id="chat-container">
+    <div class="bubble ai">Hello! I'm ready to assist. Write a request below to modify your workbook live.</div>
+  </div>
+
+  <!-- Dynamic Step Loader -->
+  <div id="loader">
+    <i class="fas fa-circle-notch fa-spin"></i> <span id="loader-text">Analyzing dataset...</span>
+  </div>
+
+  <div class="footer">
+    <div class="input-wrapper">
+      <textarea id="user-input" placeholder="Ask to clean, format, or process data..." rows="1"></textarea>
+      <i id="send-icon-btn" class="fas fa-arrow-up icon-btn send-btn" title="Send prompt"></i>
+    </div>
+  </div>
+
+  <script>
+    // UPDATE with your actual Kaggle Tunnel URL
+    const KAGGLE_URL = "https://infant-compaq-pants-qualifying.trycloudflare.com"; 
+
+    let lastUserPrompt = "";
+    let pollingTimeout = null; 
+    let secondsElapsed = 0;
+
+    Office.onReady((info) => {
+      if (info.host === Office.HostType.Excel) {
+        document.getElementById('send-icon-btn').addEventListener('click', send);
+        document.getElementById('undo-btn').addEventListener('click', triggerUndo);
+
+        document.getElementById("user-input").addEventListener("keydown", function(event) {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            send();
+          }
+        });
+        
+        document.getElementById("user-input").addEventListener("input", function() {
+          autoGrow(this);
+        });
+      }
+    });
+
+    function autoGrow(element) {
+      element.style.height = "5px";
+      element.style.height = (element.scrollHeight - 12) + "px";
+    }
+
+    function appendMsg(role, text, isAi = false) {
+      const box = document.getElementById('chat-container');
+      const div = document.createElement('div');
+      div.className = `bubble ${role}`;
+      
+      if (isAi) {
+        div.innerHTML = formatMessageText(text);
+        const toggles = div.querySelectorAll('.code-toggle');
+        toggles.forEach(toggle => {
+          toggle.addEventListener('click', function() {
+            toggleCode(this);
+          });
+        });
+      } else {
+        div.innerText = text;
+      }
+      
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+      return div;
+    }
+
+    function updateLoader(show, text) {
+      const loader = document.getElementById('loader');
+      if (show) {
+        document.getElementById('loader-text').innerText = text;
+        loader.style.display = 'flex';
+      } else {
+        loader.style.display = 'none';
+      }
+    }
+
+    /**
+     * ASYNCHRONOUS EXCEL DISPATCH
+     */
+    async function send() {
+      const input = document.getElementById('user-input');
+      const prompt = input.value.trim();
+      if (!prompt) return;
+
+      lastUserPrompt = prompt;
+      appendMsg('user', prompt);
+      input.value = "";
+      input.style.height = "20px";
+      
+      updateLoader(true, "Gathering active Excel context...");
+      secondsElapsed = 0;
+
+      try {
+        await Excel.run(async (context) => {
+          // Gathers direct client-side Workbook metadata (No middle-man server required)
+          const range = context.workbook.getSelectedRange();
+          range.load(["values", "formulas", "address"]);
+          await context.sync();
+
+          const workbookContext = {
+            activeSheetName: context.workbook.worksheets.getActiveWorksheet().name,
+            rangeAddress: range.address,
+            values: range.values,
+            formulas: range.formulas
+          };
+
+          const systemPrompt = `You are "Claude Master Agent", an elite data analyst and Microsoft Excel automation engineer specializing in Power Utility Reliability Metrics (SAIFI, SAIDI, Feeder Outages, and Fault diagnostics).
+
+CONTEXT OF ACTIVE SELECTION: ${JSON.stringify(workbookContext)}
+
+CRITICAL FORMULA COMPATIBILITY RULE:
+When writing or editing spreadsheet formulas via code (using range.formulas), you MUST write them using UPPERCASE standard US-English Excel-compatible names (e.g., use =SUM(A1:A10), =AVERAGE(), =IF()). 
+
+INSTRUCTIONS:
+1. If the user's request is a general knowledge question or analytical query, answer them thoroughly using your general knowledge. Do not use [START] or [END] tags.
+2. If the user is asking to modify or execute a task on the spreadsheet, write the appropriate Office.js JavaScript code (for the active Excel sheet context) bounded strictly by [START] and [END]. 
+   Ensure you use standard Office.js workbook operations (such as context.workbook.worksheets.getActiveWorksheet()). Do not invent methods.`;
+
+          const payload = { "prompt": `${systemPrompt}\n\nREQUEST: ${prompt}` };
+
+          updateLoader(true, "Queuing background task on GPU...");
+
+          // Post directly to your Kaggle Server
+          const response = await fetch(`${KAGGLE_URL}/generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "cf-bypass-tunnel-reminder": "true" },
+            body: JSON.stringify(payload)
+          });
+
+          const data = await response.json();
+          startPolling(data.task_id);
+        });
+      } catch (err) {
+        updateLoader(false);
+        appendMsg('ai', "Error fetching selection: " + err.message);
+      }
+    }
+
+    function startPolling(taskId) {
+      if (pollingTimeout) clearTimeout(pollingTimeout);
+      secondsElapsed = 0;
+      poll(taskId);
+    }
+
+    /**
+     * SAFE RECURSIVE POLLING FOR EXCEL
+     */
+    async function poll(taskId) {
+      try {
+        const response = await fetch(`${KAGGLE_URL}/status/${taskId}`, {
+          method: "GET",
+          headers: { "cf-bypass-tunnel-reminder": "true" }
+        });
+        const res = await response.json();
+
+        if (res.status === "completed") {
+          updateLoader(false);
+          renderResponse(res.response);
+        } else if (res.status === "failed") {
+          updateLoader(false);
+          appendMsg('system', "DeepSeek generation crashed: " + res.error);
+        } else {
+          pollingTimeout = setTimeout(() => {
+            secondsElapsed += 3;
+            updateLoader(true, `DeepSeek is thinking... (${secondsElapsed}s elapsed)`);
+            poll(taskId);
+          }, 3000);
+        }
+      } catch (err) {
+        pollingTimeout = setTimeout(() => {
+          secondsElapsed += 3;
+          updateLoader(true, `DeepSeek is thinking... (${secondsElapsed}s elapsed)`);
+          poll(taskId);
+        }, 3000);
+      }
+    }
+
+    function toggleCode(el) {
+      const codeBlock = el.nextElementSibling;
+      const icon = el.querySelector('i');
+      if (codeBlock.style.display === 'block') {
+        codeBlock.style.display = 'none';
+        icon.className = 'fas fa-chevron-right';
+      } else {
+        codeBlock.style.display = 'block';
+        icon.className = 'fas fa-chevron-down';
+      }
+    }
+
+    function renderResponse(res) {
+      const box = document.getElementById('chat-container');
+      const startEndRegex = /\[START\]([\s\S]*?)\[END\]/gi;
+      const codeBlocks = [...res.matchAll(startEndRegex)];
+      
+      if (codeBlocks.length === 0) {
+        const markdownRegex = /```(?:javascript|js)?([\s\S]*?)```/gi;
+        const mdBlocks = [...res.matchAll(markdownRegex)];
+        mdBlocks.forEach(match => {
+          codeBlocks.push([match[0], match[1]]);
+        });
+      }
+
+      if (codeBlocks.length === 0) {
+        appendMsg('ai', res, true);
+        return;
+      }
+
+      let textExplanation = res;
+      textExplanation = textExplanation.replace(/\[START\][\s\S]*?\[END\]/gi, "");
+      textExplanation = textExplanation.replace(/```(?:javascript|js)?[\s\S]*?```/gi, "");
+      textExplanation = textExplanation.replace(/PLAN:\s*/gi, "").replace(/CODE:\s*/gi, "").trim();
+
+      const bubble = document.createElement('div');
+      bubble.className = "bubble ai";
+      
+      if (textExplanation) {
+        const textDiv = document.createElement('div');
+        textDiv.style.marginBottom = "10px";
+        textDiv.style.lineHeight = "1.5";
+        textDiv.innerHTML = formatMessageText(textExplanation);
+        
+        const toggles = textDiv.querySelectorAll('.code-toggle');
+        toggles.forEach(toggle => {
+          toggle.addEventListener('click', function() {
+            toggleCode(this);
+          });
+        });
+        
+        bubble.appendChild(textDiv);
+      }
+
+      codeBlocks.forEach((match, i) => {
+        let code = match[1].trim();
+        code = code.replace(/^```(?:javascript|js)?\n/i, "").replace(/\n```$/, "");
+
+        const card = document.createElement('div');
+        card.className = 'task-card';
+        card.innerHTML = `
+          <div class="task-title"><i class="fas fa-tasks" style="color: var(--primary);"></i> Execute Generated Automation</div>
+          
+          <div class="code-accordion">
+            <span class="code-toggle">
+              <i class="fas fa-chevron-right"></i> View Generated Office.js Script
+            </span>
+            <div class="code-block">${escapeHtml(code)}</div>
+          </div>
+          
+          <button class="btn-run">
+            <i class="fas fa-play" style="margin-right: 5px;"></i> Run Action
+          </button>
+        `;
+
+        const toggleBtn = card.querySelector('.code-toggle');
+        toggleBtn.addEventListener('click', function() {
+          toggleCode(this);
+        });
+
+        const runBtn = card.querySelector('.btn-run');
+        runBtn.addEventListener('click', function() {
+          runTask(code, this, i+1);
+        });
+
+        bubble.appendChild(card);
+      });
+
+      box.appendChild(bubble);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function runTask(code, btn, stepNum) {
+      btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Running Action...`;
+      btn.className = "btn-run";
+      btn.disabled = true;
+      
+      const card = btn.parentNode;
+      card.className = "task-card";
+
+      try {
+        await Excel.run(async (context) => {
+          // Safety Step: Create a hidden backup Worksheet of active sheet prior to execution
+          const activeSheet = context.workbook.worksheets.getActiveWorksheet();
+          activeSheet.load("name");
+          await context.sync();
+
+          const backupName = "_AI_BACKUP_" + activeSheet.name;
+          const sheets = context.workbook.worksheets;
+          sheets.load("items");
+          await context.sync();
+
+          // Delete old backup if exists
+          const oldBackup = sheets.items.find(s => s.name === backupName);
+          if (oldBackup) oldBackup.delete();
+
+          // Copy active to hidden backup sheet
+          const backupSheet = activeSheet.copy(Excel.WorksheetPosition.after, activeSheet);
+          backupSheet.name = backupName;
+          backupSheet.visibility = Excel.SheetVisibility.hidden;
+          await context.sync();
+
+          // 2. Safe evaluation of Office.js code block
+          const runAI = new Function('context', `"use strict"; ${code}`);
+          await runAI(context);
+          await context.sync(); // Flushes changes directly to OneDrive screen
+
+          btn.innerHTML = `<i class="fas fa-check-circle"></i> Completed Successfully`;
+          btn.style.background = "#e2f0d9";
+          btn.style.color = "#107c41";
+          btn.style.border = "1px solid #107c41";
+
+          document.getElementById('undo-btn').style.display = "flex";
+        });
+      } catch (err) {
+        btn.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Execution Failed. Healing...`;
+        btn.className = "btn-run healing";
+        card.className = "task-card healing-state";
+
+        let errBox = card.querySelector('.err-log');
+        if (!errBox) {
+          errBox = document.createElement('div');
+          errBox.className = 'err-log';
+          errBox.style.marginTop = "8px";
+          errBox.style.fontSize = "11.5px";
+          errBox.style.color = "#9b1c1c";
+          card.appendChild(errBox);
+        }
+        errBox.innerHTML = `<b>Runtime Crash:</b> ${err.message}`;
+
+        autoHealTask(code, err.message, card, btn, stepNum);
+      }
+    }
+
+    async function triggerUndo() {
+      const undoBtn = document.getElementById('undo-btn');
+      undoBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Undoing...`;
+      undoBtn.disabled = true;
+
+      try {
+        await Excel.run(async (context) => {
+          const activeSheet = context.workbook.worksheets.getActiveWorksheet();
+          activeSheet.load("name");
+          await context.sync();
+
+          const backupName = "_AI_BACKUP_" + activeSheet.name;
+          const sheets = context.workbook.worksheets;
+          sheets.load("items");
+          await context.sync();
+
+          const backupSheet = sheets.items.find(s => s.name === backupName);
+          if (backupSheet) {
+            // Restore by duplicating the backup sheet, renaming it, and deleting the failed sheet
+            const restoredSheet = backupSheet.copy(Excel.WorksheetPosition.before, activeSheet);
+            restoredSheet.name = activeSheet.name;
+            activeSheet.delete();
+            backupSheet.delete();
+            await context.sync();
+
+            appendMsg('system', "[System] Rollback Complete! The Excel sheet has been restored to its previous state.");
+            undoBtn.style.display = "none";
+          } else {
+            appendMsg('system', "[System] Undo Failed: No backup sheet found.");
+          }
+          undoBtn.disabled = false;
+          undoBtn.innerHTML = `<i class="fas fa-undo"></i> Undo Last Run`;
+        });
+      } catch (err) {
+        undoBtn.disabled = false;
+        undoBtn.innerHTML = `<i class="fas fa-undo"></i> Undo Last Run`;
+        appendMsg('system', "[System] Undo Failed: " + err.message);
+      }
+    }
+
+    /**
+     * Agentic Self-Healing Trigger for Excel
+     */
+    async function autoHealTask(failedCode, errorMsg, card, btn, stepNum) {
+      const originalQuery = lastUserPrompt || "Modify Excel spreadsheet";
+      btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Healing...`;
+
+      const payload = {
+        prompt: `You are an expert Microsoft Excel debugging agent. The previous Office.js script crashed with error: ${errorMsg}. FAILED CODE: ${failedCode}. Write a corrected Office.js script bounded strictly by [START] and [END].`
+      };
+
+      try {
+        const response = await fetch(`${KAGGLE_URL}/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "cf-bypass-tunnel-reminder": "true" },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        startHealPolling(data.task_id, card, btn, stepNum);
+      } catch (err) {
+        btn.innerHTML = `<i class="fas fa-times-circle"></i> Healing Queue Failed`;
+      }
+    }
+
+    function startHealPolling(taskId, card, btn, stepNum) {
+      if (pollingTimeout) clearTimeout(pollingTimeout);
+      healPoll(taskId, card, btn, stepNum, 0);
+    }
+
+    async function healPoll(taskId, card, btn, stepNum, elapsed) {
+      try {
+        const response = await fetch(`${KAGGLE_URL}/status/${taskId}`, {
+          method: "GET",
+          headers: { "cf-bypass-tunnel-reminder": "true" }
+        });
+        const res = await response.json();
+
+        if (res.status === "completed") {
+          updateLoader(false);
+          const startEndRegex = /\[START\]([\s\S]*?)\[END\]/gi;
+          const match = startEndRegex.exec(res.response);
+          
+          if (match && match[1]) {
+            const healedCode = match[1].trim();
+            const codeViewer = card.querySelector('.code-block');
+            if (codeViewer) codeViewer.innerHTML = escapeHtml(healedCode);
+
+            const errBox = card.querySelector('.err-log');
+            if (errBox) errBox.remove();
+
+            card.className = "task-card";
+            const newBtn = btn.cloneNode(true);
+            btn.parentNode.replaceChild(newBtn, btn);
+
+            newBtn.innerHTML = `<i class="fas fa-shield-alt"></i> Run Corrected Action`;
+            newBtn.className = "btn-run corrected";
+            newBtn.style.background = ""; 
+            newBtn.style.color = "";
+            newBtn.style.border = "";
+            newBtn.disabled = false;
+
+            newBtn.addEventListener('click', function() {
+              runTask(healedCode, newBtn, stepNum);
+            });
+
+            appendMsg('system', `[System] Auto-Correction Complete! Generated a corrected script block for Action ${stepNum}.`);
+          }
+        } else if (res.status === "failed") {
+          btn.innerHTML = `<i class="fas fa-times-circle"></i> Correction Failed`;
+        } else {
+          pollingTimeout = setTimeout(() => {
+            btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Healing... (${elapsed + 3}s)`;
+            healPoll(taskId, card, btn, stepNum, elapsed + 3);
+          }, 3000);
+        }
+      } catch (err) {
+        pollingTimeout = setTimeout(() => {
+          btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Healing... (${elapsed + 3}s)`;
+          healPoll(taskId, card, btn, stepNum, elapsed + 3);
+        }, 3000);
+      }
+    }
+
+    /**
+     * Formats DeepSeek's thinking tags and standard markdown markers cleanly into HTML
+     */
+    function formatMessageText(text) {
+      let formatted = text;
+
+      // 1. Capture DeepSeek <think> tags and render them inside a custom collapsible container
+      formatted = formatted.replace(/<think>([\s\S]*?)<\/think>/gi, function(match, thinkingText) {
+        return `
+          <div class="code-accordion" style="margin-bottom: 10px; border-left: 2px solid #64748b; padding-left: 8px;">
+            <span class="code-toggle" style="color: #64748b; font-weight: bold; font-size: 11.5px; cursor: pointer;">
+              <i class="fas fa-brain"></i> View DeepSeek Thinking Process
+            </span>
+            <div class="code-block" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; font-family: inherit; font-size: 11.5px; white-space: pre-wrap;">
+              ${thinkingText.trim()}
+            </div>
+          </div>
+        `;
+      });
+
+      // 2. Format standard Markdown markers
+      formatted = formatted
+        .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>") // Bold
+        .replace(/\*(.*?)\*/g, "<i>$1</i>")     // Italics
+        .replace(/•\s*(.*?)/g, "&bull; $1")    // Bullet lists
+        .replace(/`([^`]+)`/g, "<code>$1</code>") // In-line code blocks
+        .replace(/\n/g, "<br>");                // Line Breaks
+
+      return formatted;
+    }
+
+    function escapeHtml(text) {
+      return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>

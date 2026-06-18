@@ -1,1 +1,428 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Excel Live AI Engine</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary: #107c41; /* Clean Excel Green */
+      --primary-hover: #0b5930;
+      --bg: #f8fafc;
+      --chat-bg: #ffffff;
+      --border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --bubble-user: #e2f0d9;
+      --bubble-ai: #f1f5f9;
+      --healing: #d97706; /* Amber for Auto-Healing status */
+      --danger: #ef4444; /* Red for Undo actions */
+    }
+    
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+      margin: 0; 
+      background: var(--bg); 
+      display: flex; 
+      flex-direction: column; 
+      height: 100vh; 
+      color: var(--text-main);
+      font-size: 13px;
+    }
+    
+    .header { 
+      background: #0f172a; 
+      color: white; 
+      padding: 14px 18px; 
+      font-weight: 600; 
+      font-size: 15px; 
+      display: flex; 
+      align-items: center; 
+      justify-content: space-between;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
 
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header i {
+      color: #34d399;
+    }
+
+    .btn-undo {
+      background: var(--danger);
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      font-size: 11px;
+      font-weight: bold;
+      border-radius: 4px;
+      cursor: pointer;
+      display: none; 
+      align-items: center;
+      gap: 5px;
+    }
+
+    #chat-container { 
+      flex-grow: 1; 
+      overflow-y: auto; 
+      padding: 15px; 
+      display: flex; 
+      flex-direction: column; 
+      gap: 12px; 
+    }
+    
+    .bubble { 
+      max-width: 85%; 
+      padding: 10px 14px; 
+      border-radius: 12px; 
+      line-height: 1.5; 
+      word-wrap: break-word;
+    }
+    
+    .user { 
+      align-self: flex-end; 
+      background: var(--bubble-user); 
+      color: var(--text-main); 
+      border-bottom-right-radius: 2px;
+    }
+    
+    .ai { 
+      align-self: flex-start; 
+      background: var(--chat-bg); 
+      border: 1px solid var(--border); 
+      color: var(--text-main); 
+      border-bottom-left-radius: 2px;
+    }
+
+    .system {
+      align-self: center;
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      color: #78350f;
+      font-size: 11.5px;
+      border-radius: 6px;
+      text-align: center;
+      max-width: 95%;
+      padding: 6px 12px;
+    }
+    
+    .task-card { 
+      background: #f8fafc; 
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--primary); 
+      padding: 12px; 
+      margin-top: 10px; 
+      border-radius: 6px; 
+    }
+
+    .code-block {
+      display: none;
+      background: #1e293b;
+      color: #f8fafc;
+      font-family: monospace;
+      font-size: 11px;
+      padding: 8px;
+      border-radius: 4px;
+      margin-top: 6px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+    }
+    
+    .btn-run { 
+      background: var(--primary); 
+      color: white; 
+      border: none;
+      padding: 10px; 
+      width: 100%; 
+      border-radius: 6px; 
+      cursor: pointer; 
+      font-weight: bold; 
+      margin-top: 8px; 
+    }
+
+    .footer { 
+      padding: 12px 15px; 
+      background: white; 
+      border-top: 1px solid var(--border); 
+    }
+    
+    .input-wrapper { 
+      display: flex; 
+      background: #f1f5f9; 
+      border-radius: 18px; 
+      padding: 6px 12px; 
+      align-items: flex-end; 
+      gap: 8px;
+      border: 1px solid var(--border);
+    }
+    
+    textarea { 
+      flex-grow: 1; 
+      border: none; 
+      background: transparent; 
+      outline: none; 
+      font-size: 13.5px;
+      resize: none;
+      height: 20px;
+      max-height: 80px;
+    }
+
+    #loader { 
+      display: none; 
+      padding: 10px 15px; 
+      color: var(--primary); 
+      font-weight: 600; 
+      border-top: 1px solid var(--border);
+      background: #f0fdf4;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .code-toggle {
+        font-size: 11px;
+        color: var(--text-muted);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-title">
+      <i class="fas fa-file-excel"></i> EXCEL LIVE ENGINE
+    </div>
+    <button id="undo-btn" class="btn-undo"><i class="fas fa-undo"></i> Undo Last Run</button>
+  </div>
+
+  <div id="chat-container">
+    <div class="bubble ai">Hello! I'm ready to assist. Write a request below to modify your workbook live.</div>
+  </div>
+
+  <div id="loader">
+    <i class="fas fa-circle-notch fa-spin"></i> <span id="loader-text">Analyzing dataset...</span>
+  </div>
+
+  <div class="footer">
+    <div class="input-wrapper">
+      <textarea id="user-input" placeholder="Ask to clean, format, or process data..." rows="1"></textarea>
+      <i id="send-icon-btn" class="fas fa-arrow-up icon-btn" style="color:var(--primary); cursor:pointer;"></i>
+    </div>
+  </div>
+
+  <script>
+    // UPDATE with your actual Kaggle Tunnel URL
+    const KAGGLE_URL = "https://infant-compaq-pants-qualifying.trycloudflare.com"; 
+
+    let lastUserPrompt = "";
+    let pollingTimeout = null; 
+
+    Office.onReady((info) => {
+      if (info.host === Office.HostType.Excel) {
+        document.getElementById('send-icon-btn').addEventListener('click', send);
+        document.getElementById('undo-btn').addEventListener('click', triggerUndo);
+        document.getElementById("user-input").addEventListener("keydown", function(e) {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            send();
+          }
+        });
+      }
+    });
+
+    /**
+     * CORE FIX: Handling Excel Context Safely
+     */
+    async function send() {
+      const input = document.getElementById('user-input');
+      const prompt = input.value.trim();
+      if (!prompt) return;
+
+      lastUserPrompt = prompt;
+      appendMsg('user', prompt);
+      input.value = "";
+      updateLoader(true, "Gathering active Excel context...");
+
+      try {
+        await Excel.run(async (context) => {
+          const sheet = context.workbook.worksheets.getActiveWorksheet();
+          const range = context.workbook.getSelectedRange();
+          
+          // 1. MUST LOAD properties before using them
+          sheet.load("name");
+          range.load(["values", "formulas", "address"]);
+          
+          // 2. MUST SYNC to fetch the data from Excel Online
+          await context.sync();
+
+          const workbookContext = {
+            activeSheetName: sheet.name, // Now safe to use
+            rangeAddress: range.address,
+            values: range.values
+          };
+
+          const systemPrompt = `You are an elite Excel Automation Engineer.
+          CONTEXT: ${JSON.stringify(workbookContext)}
+          
+          TASK: Write Office.js JavaScript code to fulfill the request. 
+          RULES: 
+          - Wrap code strictly in [START] and [END].
+          - Use context.workbook.worksheets.getActiveWorksheet().
+          - Always end your code with 'await context.sync();'`;
+
+          const payload = { "prompt": `${systemPrompt}\n\nREQUEST: ${prompt}` };
+
+          updateLoader(true, "Queuing AI generation...");
+
+          const response = await fetch(`${KAGGLE_URL}/generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          const data = await response.json();
+          startPolling(data.task_id);
+        });
+      } catch (err) {
+        updateLoader(false);
+        appendMsg('ai', "Excel Error: " + err.message);
+      }
+    }
+
+    function startPolling(taskId) {
+      if (pollingTimeout) clearTimeout(pollingTimeout);
+      poll(taskId);
+    }
+
+    async function poll(taskId) {
+      try {
+        const response = await fetch(`${KAGGLE_URL}/status/${taskId}`);
+        const res = await response.json();
+
+        if (res.status === "completed") {
+          updateLoader(false);
+          renderResponse(res.response);
+        } else {
+          pollingTimeout = setTimeout(() => poll(taskId), 3000);
+        }
+      } catch (err) {
+        pollingTimeout = setTimeout(() => poll(taskId), 3000);
+      }
+    }
+
+    function renderResponse(res) {
+      const startEndRegex = /\[START\]([\s\S]*?)\[END\]/gi;
+      const match = startEndRegex.exec(res);
+      
+      if (!match) {
+        appendMsg('ai', res, true);
+        return;
+      }
+
+      const code = match[1].trim();
+      const box = document.getElementById('chat-container');
+      const bubble = document.createElement('div');
+      bubble.className = "bubble ai";
+      
+      bubble.innerHTML = `
+        <div style="margin-bottom:10px;">I've prepared the automation:</div>
+        <div class="task-card">
+          <div class="code-toggle" onclick="this.nextElementSibling.style.display='block'">
+             <i class="fas fa-chevron-right"></i> View Office.js Script
+          </div>
+          <div class="code-block">${escapeHtml(code)}</div>
+          <button class="btn-run"><i class="fas fa-play"></i> Run Action</button>
+        </div>
+      `;
+
+      bubble.querySelector('.btn-run').onclick = function() {
+        runTask(code, this);
+      };
+
+      box.appendChild(bubble);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    async function runTask(code, btn) {
+      btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Running...`;
+      btn.disabled = true;
+      
+      try {
+        await Excel.run(async (context) => {
+          // Backup logic
+          const activeSheet = context.workbook.worksheets.getActiveWorksheet();
+          activeSheet.load("name");
+          await context.sync();
+
+          const backupName = "_AI_BACKUP_" + activeSheet.name;
+          const backupSheet = activeSheet.copy(Excel.WorksheetPosition.after, activeSheet);
+          backupSheet.name = backupName;
+          backupSheet.visibility = Excel.SheetVisibility.hidden;
+
+          // CORE FIX: Wrap generated code in an async wrapper
+          const wrappedCode = `(async (context) => { ${code} })(context);`;
+          const runAI = new Function('context', `"use strict"; return ${wrappedCode}`);
+          
+          await runAI(context);
+          await context.sync();
+
+          btn.innerHTML = `<i class="fas fa-check-circle"></i> Success`;
+          btn.style.background = "#e2f0d9";
+          btn.style.color = "#107c41";
+          document.getElementById('undo-btn').style.display = "flex";
+        });
+      } catch (err) {
+        btn.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Failed`;
+        btn.disabled = false;
+        appendMsg('system', "Runtime Error: " + err.message);
+      }
+    }
+
+    async function triggerUndo() {
+      await Excel.run(async (context) => {
+          const activeSheet = context.workbook.worksheets.getActiveWorksheet();
+          activeSheet.load("name");
+          await context.sync();
+
+          const backupName = "_AI_BACKUP_" + activeSheet.name;
+          const backupSheet = context.workbook.worksheets.getItem(backupName);
+          const restored = backupSheet.copy(Excel.WorksheetPosition.before, activeSheet);
+          restored.name = activeSheet.name;
+          
+          activeSheet.delete();
+          backupSheet.delete();
+          await context.sync();
+          
+          document.getElementById('undo-btn').style.display = "none";
+          appendMsg('system', "Workbook Restored.");
+      });
+    }
+
+    function appendMsg(role, text) {
+      const box = document.getElementById('chat-container');
+      const div = document.createElement('div');
+      div.className = `bubble ${role}`;
+      div.innerText = text;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function updateLoader(show, text) {
+      const loader = document.getElementById('loader');
+      document.getElementById('loader-text').innerText = text;
+      loader.style.display = show ? 'flex' : 'none';
+    }
+
+    function escapeHtml(text) {
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+  </script>
+</body>
+</html>

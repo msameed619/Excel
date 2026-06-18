@@ -67,6 +67,10 @@
       gap: 5px;
     }
 
+    .btn-undo:hover {
+      background: #dc2626;
+    }
+
     #chat-container { 
       flex-grow: 1; 
       overflow-y: auto; 
@@ -89,6 +93,7 @@
       background: var(--bubble-user); 
       color: var(--text-main); 
       border-bottom-right-radius: 2px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
     
     .ai { 
@@ -97,6 +102,7 @@
       border: 1px solid var(--border); 
       color: var(--text-main); 
       border-bottom-left-radius: 2px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.02);
     }
 
     .system {
@@ -118,6 +124,40 @@
       padding: 12px; 
       margin-top: 10px; 
       border-radius: 6px; 
+      text-align: left;
+    }
+
+    .task-card.failed-state {
+      border-left-color: #ef4444;
+    }
+
+    .task-card.healing-state {
+      border-left-color: var(--healing);
+    }
+
+    .task-title {
+      font-weight: 600;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: var(--text-main);
+    }
+
+    .code-accordion {
+      margin-top: 8px;
+    }
+
+    .code-toggle {
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      user-select: none;
+    }
+
+    .code-toggle:hover {
+      color: var(--primary);
     }
 
     .code-block {
@@ -131,20 +171,45 @@
       margin-top: 6px;
       overflow-x: auto;
       white-space: pre-wrap;
+      border: 1px solid #334155;
     }
     
     .btn-run { 
       background: var(--primary); 
       color: white; 
       border: none;
-      padding: 10px; 
+      padding: 8px; 
       width: 100%; 
       border-radius: 6px; 
       cursor: pointer; 
       font-weight: bold; 
       margin-top: 8px; 
+      font-size: 12px;
+      transition: background 0.2s;
     }
 
+    .btn-run:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-run.healing {
+      background: var(--healing);
+    }
+
+    .btn-run.corrected {
+      background: #2563eb; 
+    }
+
+    .btn-run.corrected:hover {
+      background: #1d4ed8;
+    }
+
+    .btn-run:disabled {
+      background: #cbd5e1;
+      color: #64748b;
+      cursor: not-allowed;
+    }
+    
     .footer { 
       padding: 12px 15px; 
       background: white; 
@@ -160,36 +225,58 @@
       gap: 8px;
       border: 1px solid var(--border);
     }
+
+    .input-wrapper:focus-within {
+      border-color: var(--primary);
+      background: white;
+    }
     
     textarea { 
       flex-grow: 1; 
       border: none; 
       background: transparent; 
+      padding: 6px 0; 
       outline: none; 
       font-size: 13.5px;
       resize: none;
       height: 20px;
       max-height: 80px;
+      line-height: 1.4;
     }
 
+    .icon-btn {
+      color: #64748b;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 6px;
+      border-radius: 50%;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .icon-btn:hover {
+      background: #e2e8f0;
+      color: var(--text-main);
+    }
+
+    .icon-btn.send-btn {
+      color: var(--primary);
+    }
+
+    .icon-btn.send-btn:hover {
+      background: #e2f0d9;
+      color: var(--primary-hover);
+    }
+    
     #loader { 
       display: none; 
       padding: 10px 15px; 
       color: var(--primary); 
+      font-size: 11.5px; 
       font-weight: 600; 
       border-top: 1px solid var(--border);
       background: #f0fdf4;
       align-items: center;
       gap: 8px;
-    }
-
-    .code-toggle {
-        font-size: 11px;
-        color: var(--text-muted);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        gap: 4px;
     }
   </style>
 </head>
@@ -213,33 +300,72 @@
   <div class="footer">
     <div class="input-wrapper">
       <textarea id="user-input" placeholder="Ask to clean, format, or process data..." rows="1"></textarea>
-      <i id="send-icon-btn" class="fas fa-arrow-up icon-btn" style="color:var(--primary); cursor:pointer;"></i>
+      <i id="send-icon-btn" class="fas fa-arrow-up icon-btn send-btn" title="Send prompt"></i>
     </div>
   </div>
 
   <script>
-    // UPDATE with your actual Kaggle Tunnel URL
     const KAGGLE_URL = "https://infant-compaq-pants-qualifying.trycloudflare.com"; 
 
     let lastUserPrompt = "";
     let pollingTimeout = null; 
+    let secondsElapsed = 0;
 
     Office.onReady((info) => {
       if (info.host === Office.HostType.Excel) {
         document.getElementById('send-icon-btn').addEventListener('click', send);
         document.getElementById('undo-btn').addEventListener('click', triggerUndo);
-        document.getElementById("user-input").addEventListener("keydown", function(e) {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
+
+        document.getElementById("user-input").addEventListener("keydown", function(event) {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
             send();
           }
+        });
+        
+        document.getElementById("user-input").addEventListener("input", function() {
+          autoGrow(this);
         });
       }
     });
 
-    /**
-     * CORE FIX: Handling Excel Context Safely
-     */
+    function autoGrow(element) {
+      element.style.height = "5px";
+      element.style.height = (element.scrollHeight - 12) + "px";
+    }
+
+    function appendMsg(role, text, isAi = false) {
+      const box = document.getElementById('chat-container');
+      const div = document.createElement('div');
+      div.className = `bubble ${role}`;
+      
+      if (isAi) {
+        div.innerHTML = formatMessageText(text);
+        const toggles = div.querySelectorAll('.code-toggle');
+        toggles.forEach(toggle => {
+          toggle.addEventListener('click', function() {
+            toggleCode(this);
+          });
+        });
+      } else {
+        div.innerText = text;
+      }
+      
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+      return div;
+    }
+
+    function updateLoader(show, text) {
+      const loader = document.getElementById('loader');
+      if (show) {
+        document.getElementById('loader-text').innerText = text;
+        loader.style.display = 'flex';
+      } else {
+        loader.style.display = 'none';
+      }
+    }
+
     async function send() {
       const input = document.getElementById('user-input');
       const prompt = input.value.trim();
@@ -248,42 +374,45 @@
       lastUserPrompt = prompt;
       appendMsg('user', prompt);
       input.value = "";
+      input.style.height = "20px";
+      
       updateLoader(true, "Gathering active Excel context...");
+      secondsElapsed = 0;
 
       try {
         await Excel.run(async (context) => {
-          const sheet = context.workbook.worksheets.getActiveWorksheet();
+          const activeSheet = context.workbook.worksheets.getActiveWorksheet();
           const range = context.workbook.getSelectedRange();
           
-          // 1. MUST LOAD properties before using them
-          sheet.load("name");
+          // FIX 1: Must load worksheet name
+          activeSheet.load("name");
+          // FIX 2: Must load range properties before context.sync()
           range.load(["values", "formulas", "address"]);
           
-          // 2. MUST SYNC to fetch the data from Excel Online
+          // FIX 3: Fetching everything from Excel server
           await context.sync();
 
           const workbookContext = {
-            activeSheetName: sheet.name, // Now safe to use
+            activeSheetName: activeSheet.name,
             rangeAddress: range.address,
-            values: range.values
+            values: range.values,
+            formulas: range.formulas
           };
 
-          const systemPrompt = `You are an elite Excel Automation Engineer.
-          CONTEXT: ${JSON.stringify(workbookContext)}
-          
-          TASK: Write Office.js JavaScript code to fulfill the request. 
-          RULES: 
-          - Wrap code strictly in [START] and [END].
-          - Use context.workbook.worksheets.getActiveWorksheet().
-          - Always end your code with 'await context.sync();'`;
+          const systemPrompt = `You are "Claude Master Agent", an elite data analyst and Microsoft Excel automation engineer.
+CONTEXT OF ACTIVE SELECTION: ${JSON.stringify(workbookContext)}
+INSTRUCTIONS:
+1. If the user's request is a query, answer using general knowledge.
+2. If modifying spreadsheet, write Office.js code bounded by [START] and [END]. 
+   Use context.workbook.worksheets.getActiveWorksheet(). Always end with 'await context.sync();'`;
 
           const payload = { "prompt": `${systemPrompt}\n\nREQUEST: ${prompt}` };
 
-          updateLoader(true, "Queuing AI generation...");
+          updateLoader(true, "Queuing background task...");
 
           const response = await fetch(`${KAGGLE_URL}/generate`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "cf-bypass-tunnel-reminder": "true" },
             body: JSON.stringify(payload)
           });
 
@@ -292,137 +421,199 @@
         });
       } catch (err) {
         updateLoader(false);
-        appendMsg('ai', "Excel Error: " + err.message);
+        appendMsg('ai', "Error fetching selection: " + err.message);
       }
     }
 
     function startPolling(taskId) {
       if (pollingTimeout) clearTimeout(pollingTimeout);
+      secondsElapsed = 0;
       poll(taskId);
     }
 
     async function poll(taskId) {
       try {
-        const response = await fetch(`${KAGGLE_URL}/status/${taskId}`);
+        const response = await fetch(`${KAGGLE_URL}/status/${taskId}`, {
+          method: "GET",
+          headers: { "cf-bypass-tunnel-reminder": "true" }
+        });
         const res = await response.json();
 
         if (res.status === "completed") {
           updateLoader(false);
           renderResponse(res.response);
+        } else if (res.status === "failed") {
+          updateLoader(false);
+          appendMsg('system', "Generation crashed: " + res.error);
         } else {
-          pollingTimeout = setTimeout(() => poll(taskId), 3000);
+          pollingTimeout = setTimeout(() => {
+            secondsElapsed += 3;
+            updateLoader(true, `AI is thinking... (${secondsElapsed}s)`);
+            poll(taskId);
+          }, 3000);
         }
       } catch (err) {
         pollingTimeout = setTimeout(() => poll(taskId), 3000);
       }
     }
 
+    function toggleCode(el) {
+      const codeBlock = el.nextElementSibling;
+      const icon = el.querySelector('i');
+      if (codeBlock.style.display === 'block') {
+        codeBlock.style.display = 'none';
+        icon.className = 'fas fa-chevron-right';
+      } else {
+        codeBlock.style.display = 'block';
+        icon.className = 'fas fa-chevron-down';
+      }
+    }
+
     function renderResponse(res) {
+      const box = document.getElementById('chat-container');
       const startEndRegex = /\[START\]([\s\S]*?)\[END\]/gi;
-      const match = startEndRegex.exec(res);
+      const codeBlocks = [...res.matchAll(startEndRegex)];
       
-      if (!match) {
+      if (codeBlocks.length === 0) {
+        const markdownRegex = /```(?:javascript|js)?([\s\S]*?)```/gi;
+        const mdBlocks = [...res.matchAll(markdownRegex)];
+        mdBlocks.forEach(match => { codeBlocks.push([match[0], match[1]]); });
+      }
+
+      if (codeBlocks.length === 0) {
         appendMsg('ai', res, true);
         return;
       }
 
-      const code = match[1].trim();
-      const box = document.getElementById('chat-container');
+      let textExplanation = res.replace(/\[START\][\s\S]*?\[END\]/gi, "").replace(/```(?:javascript|js)?[\s\S]*?```/gi, "").trim();
+
       const bubble = document.createElement('div');
       bubble.className = "bubble ai";
       
-      bubble.innerHTML = `
-        <div style="margin-bottom:10px;">I've prepared the automation:</div>
-        <div class="task-card">
-          <div class="code-toggle" onclick="this.nextElementSibling.style.display='block'">
-             <i class="fas fa-chevron-right"></i> View Office.js Script
-          </div>
-          <div class="code-block">${escapeHtml(code)}</div>
-          <button class="btn-run"><i class="fas fa-play"></i> Run Action</button>
-        </div>
-      `;
+      if (textExplanation) {
+        const textDiv = document.createElement('div');
+        textDiv.style.marginBottom = "10px";
+        textDiv.innerHTML = formatMessageText(textExplanation);
+        bubble.appendChild(textDiv);
+      }
 
-      bubble.querySelector('.btn-run').onclick = function() {
-        runTask(code, this);
-      };
+      codeBlocks.forEach((match, i) => {
+        let code = match[1].trim();
+        const card = document.createElement('div');
+        card.className = 'task-card';
+        card.innerHTML = `
+          <div class="task-title"><i class="fas fa-tasks"></i> Run Action ${i+1}</div>
+          <div class="code-accordion">
+            <span class="code-toggle"><i class="fas fa-chevron-right"></i> View Script</span>
+            <div class="code-block">${escapeHtml(code)}</div>
+          </div>
+          <button class="btn-run"><i class="fas fa-play"></i> Run Action</button>
+        `;
+        card.querySelector('.code-toggle').onclick = function() { toggleCode(this); };
+        card.querySelector('.btn-run').onclick = function() { runTask(code, this, i+1); };
+        bubble.appendChild(card);
+      });
 
       box.appendChild(bubble);
       box.scrollTop = box.scrollHeight;
     }
 
-    async function runTask(code, btn) {
+    async function runTask(code, btn, stepNum) {
       btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Running...`;
       btn.disabled = true;
-      
+      const card = btn.parentNode;
+
       try {
         await Excel.run(async (context) => {
-          // Backup logic
           const activeSheet = context.workbook.worksheets.getActiveWorksheet();
           activeSheet.load("name");
           await context.sync();
 
+          // Backup for Undo
           const backupName = "_AI_BACKUP_" + activeSheet.name;
+          const sheets = context.workbook.worksheets;
+          sheets.load("items");
+          await context.sync();
+          const oldBackup = sheets.items.find(s => s.name === backupName);
+          if (oldBackup) oldBackup.delete();
           const backupSheet = activeSheet.copy(Excel.WorksheetPosition.after, activeSheet);
           backupSheet.name = backupName;
           backupSheet.visibility = Excel.SheetVisibility.hidden;
 
-          // CORE FIX: Wrap generated code in an async wrapper
-          const wrappedCode = `(async (context) => { ${code} })(context);`;
-          const runAI = new Function('context', `"use strict"; return ${wrappedCode}`);
-          
+          // EXECUTION FIX: Wrap in async to handle Office.js sync inside the dynamic code
+          const runAI = new Function('context', `"use strict"; return (async function(context){ ${code} })(context);`);
           await runAI(context);
-          await context.sync();
+          await context.sync(); 
 
-          btn.innerHTML = `<i class="fas fa-check-circle"></i> Success`;
+          btn.innerHTML = `<i class="fas fa-check-circle"></i> Completed`;
           btn.style.background = "#e2f0d9";
           btn.style.color = "#107c41";
           document.getElementById('undo-btn').style.display = "flex";
         });
       } catch (err) {
-        btn.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Failed`;
-        btn.disabled = false;
-        appendMsg('system', "Runtime Error: " + err.message);
+        btn.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Failed. Healing...`;
+        btn.className = "btn-run healing";
+        autoHealTask(code, err.message, card, btn, stepNum);
       }
     }
 
     async function triggerUndo() {
-      await Excel.run(async (context) => {
+      const undoBtn = document.getElementById('undo-btn');
+      undoBtn.innerHTML = `Undoing...`;
+      try {
+        await Excel.run(async (context) => {
           const activeSheet = context.workbook.worksheets.getActiveWorksheet();
           activeSheet.load("name");
           await context.sync();
-
           const backupName = "_AI_BACKUP_" + activeSheet.name;
           const backupSheet = context.workbook.worksheets.getItem(backupName);
           const restored = backupSheet.copy(Excel.WorksheetPosition.before, activeSheet);
           restored.name = activeSheet.name;
-          
           activeSheet.delete();
           backupSheet.delete();
           await context.sync();
-          
-          document.getElementById('undo-btn').style.display = "none";
-          appendMsg('system', "Workbook Restored.");
-      });
+          undoBtn.style.display = "none";
+        });
+      } catch (e) { appendMsg('system', "Undo failed."); }
     }
 
-    function appendMsg(role, text) {
-      const box = document.getElementById('chat-container');
-      const div = document.createElement('div');
-      div.className = `bubble ${role}`;
-      div.innerText = text;
-      box.appendChild(div);
-      box.scrollTop = box.scrollHeight;
+    async function autoHealTask(failedCode, errorMsg, card, btn, stepNum) {
+      const payload = { prompt: `The previous Office.js script crashed: ${errorMsg}. FAILED CODE: ${failedCode}. Write a corrected version inside [START] and [END].` };
+      try {
+        const response = await fetch(`${KAGGLE_URL}/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const data = await response.json();
+        startHealPolling(data.task_id, card, btn, stepNum);
+      } catch (err) { btn.innerHTML = `Healing Failed`; }
     }
 
-    function updateLoader(show, text) {
-      const loader = document.getElementById('loader');
-      document.getElementById('loader-text').innerText = text;
-      loader.style.display = show ? 'flex' : 'none';
+    function startHealPolling(taskId, card, btn, stepNum) { pollHeal(taskId, card, btn, stepNum); }
+
+    async function pollHeal(taskId, card, btn, stepNum) {
+      const response = await fetch(`${KAGGLE_URL}/status/${taskId}`);
+      const res = await response.json();
+      if (res.status === "completed") {
+        const match = /\[START\]([\s\S]*?)\[END\]/gi.exec(res.response);
+        if (match) {
+          const healedCode = match[1].trim();
+          card.querySelector('.code-block').innerHTML = escapeHtml(healedCode);
+          btn.innerHTML = `Run Corrected Action`;
+          btn.className = "btn-run corrected";
+          btn.disabled = false;
+          btn.onclick = () => runTask(healedCode, btn, stepNum);
+        }
+      } else { setTimeout(() => pollHeal(taskId, card, btn, stepNum), 3000); }
     }
 
-    function escapeHtml(text) {
-      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    function formatMessageText(text) {
+      let formatted = text.replace(/<think>([\s\S]*?)<\/think>/gi, (m, t) => `
+          <div class="code-accordion">
+            <span class="code-toggle" style="color:#64748b;"><i class="fas fa-brain"></i> Thinking Process</span>
+            <div class="code-block" style="background:#f1f5f9; color:#475569;">${t.trim()}</div>
+          </div>`);
+      return formatted.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>");
     }
+
+    function escapeHtml(text) { return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   </script>
 </body>
 </html>

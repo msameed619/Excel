@@ -34,6 +34,7 @@
     .user { align-self: flex-end; background: var(--user-bubble); color: #064e3b; }
     .ai { align-self: flex-start; background: white; border: 1px solid var(--border); }
 
+    /* Kimi-style Thinking Box */
     .thinking-container {
       background: var(--thinking-bg);
       border-left: 3px solid #9ca3af;
@@ -71,26 +72,27 @@
 
   <div class="header">
     <span><i class="fas fa-robot"></i> KIMI-PRO ENGINE</span>
-    <button id="clear-btn" style="background:none; border:none; color:gray; cursor:pointer;" title="Clear Memory"><i class="fas fa-trash"></i></button>
+    <button id="clear-btn" style="background:none; border:none; color:gray; cursor:pointer;" title="Reset Conversation"><i class="fas fa-sync-alt"></i></button>
   </div>
 
   <div id="chat-container">
-    <div class="bubble ai">I'm connected to your Kaggle Agent. Send a request to begin live editing.</div>
+    <div class="bubble ai">I'm ready. I can answer questions or modify your spreadsheet live. What's the task?</div>
   </div>
 
-  <div id="loader"><i class="fas fa-sync fa-spin"></i> Agent is thinking...</div>
+  <div id="loader"><i class="fas fa-brain fa-spin"></i> Agent is generating...</div>
 
   <div class="footer">
     <div class="input-wrapper">
-      <textarea id="user-input" placeholder="Type a request..."></textarea>
+      <textarea id="user-input" placeholder="Ask a question or a task..."></textarea>
       <i id="send-btn" class="fas fa-paper-plane" style="color:var(--primary); cursor:pointer;"></i>
     </div>
   </div>
 
   <script>
-    // UPDATE THIS URL FROM KAGGLE EVERY TIME YOU RESTART
-    const KAGGLE_URL = "https://able-pieces-eng-jobs.trycloudflare.com"; 
+    // 1. UPDATE THIS URL FROM KAGGLE OUTPUT
+    const KAGGLE_URL = "https://shuttle-compatibility-picnic-log.trycloudflare.com"; 
     
+    // 2. GENERATE SESSION ID FOR MEMORY
     const sessionId = "session_" + Math.random().toString(36).substr(2, 9);
 
     Office.onReady((info) => {
@@ -115,32 +117,26 @@
       try {
         await Excel.run(async (context) => {
           const sheet = context.workbook.worksheets.getActiveWorksheet();
-          
-          // FIX: Explicitly load 'name' and 'UsedRange' properties
-          sheet.load("name"); 
+          sheet.load("name");
           const usedRange = sheet.getUsedRange();
-          usedRange.load(["address", "values"]); 
-          
-          // CRITICAL: Must sync before accessing sheet.name
+          usedRange.load(["address", "values"]);
           await context.sync();
 
           const excelContext = {
             activeSheet: sheet.name,
             range: usedRange.address,
             headers: usedRange.values[0] || [],
-            dataPreview: usedRange.values.slice(1, 6)
-          };
-
-          const payload = {
-            "session_id": sessionId,
-            "prompt": prompt,
-            "excel_context": JSON.stringify(excelContext)
+            dataPreview: usedRange.values.slice(1, 4) // Reduced to save tokens
           };
 
           const response = await fetch(`${KAGGLE_URL}/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "cf-bypass-tunnel-reminder": "true" },
-            body: JSON.stringify(payload)
+            body: JSON.stringify({
+              "session_id": sessionId,
+              "prompt": prompt,
+              "excel_context": JSON.stringify(excelContext)
+            })
           });
 
           const data = await response.json();
@@ -148,15 +144,13 @@
         });
       } catch (err) {
         updateLoader(false);
-        appendMsg('ai', "Excel Connection Error: " + err.message);
+        appendMsg('ai', "Excel Error: " + err.message);
       }
     }
 
     async function pollStatus(taskId) {
       try {
-        const res = await fetch(`${KAGGLE_URL}/status/${taskId}`, { 
-            headers: { "cf-bypass-tunnel-reminder": "true" } 
-        });
+        const res = await fetch(`${KAGGLE_URL}/status/${taskId}`, { headers: { "cf-bypass-tunnel-reminder": "true" } });
         const data = await res.json();
 
         if (data.status === "completed") {
@@ -164,14 +158,12 @@
           renderAiResponse(data.response);
         } else if (data.status === "failed") {
           updateLoader(false);
-          appendMsg('ai', "Agent Logic Error: " + data.error);
+          appendMsg('ai', "Agent Error: " + data.error);
         } else {
-          // Poll every 3 seconds
           setTimeout(() => pollStatus(taskId), 3000);
         }
       } catch (e) {
-          console.log("Polling...");
-          setTimeout(() => pollStatus(taskId), 3000);
+        setTimeout(() => pollStatus(taskId), 3000);
       }
     }
 
@@ -180,7 +172,7 @@
       const bubble = document.createElement('div');
       bubble.className = "bubble ai";
 
-      // 1. Render Thinking Box
+      // 1. THOUGHT BOX
       const thinkMatch = fullText.match(/<think>([\s\S]*?)<\/think>/i);
       if (thinkMatch) {
         const thinkDiv = document.createElement('div');
@@ -189,25 +181,31 @@
         bubble.appendChild(thinkDiv);
       }
 
-      // 2. Render Clean Text
-      let cleanText = fullText.replace(/<think>[\s\S]*?<\/think>/i, "").replace(/\[START\][\s\S]*?\[END\]/gi, "").trim();
+      // 2. TEXT CONTENT (With Bold/Linebreak formatting)
+      let cleanText = fullText
+        .replace(/<think>[\s\S]*?<\/think>/i, "")
+        .replace(/\[START\][\s\S]*?\[END\]/gi, "")
+        .trim();
+
       if (cleanText) {
         const textDiv = document.createElement('div');
-        textDiv.innerHTML = cleanText.replace(/\n/g, "<br>");
+        textDiv.innerHTML = cleanText
+          .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")
+          .replace(/\n/g, "<br>");
         bubble.appendChild(textDiv);
       }
 
-      // 3. Render Action Card
+      // 3. ACTION BUTTON (Only if code exists)
       const codeMatch = /\[START\]([\s\S]*?)\[END\]/gi.exec(fullText);
       if (codeMatch) {
         const code = codeMatch[1].trim();
         const card = document.createElement('div');
         card.className = "task-card";
         card.innerHTML = `
-          <div style="font-weight:bold; color:var(--primary); font-size:11px; margin-bottom:5px;">AI ACTION READY</div>
-          <button class="btn-run" id="apply-code-btn">Apply to Sheet</button>
+          <div style="font-weight:bold; color:var(--primary); font-size:11px; margin-bottom:5px;">ACTION READY</div>
+          <button class="btn-run" id="exec-btn">Apply to Worksheet</button>
         `;
-        card.querySelector('#apply-code-btn').onclick = () => executeExcelCode(code, card.querySelector('#apply-code-btn'));
+        card.querySelector('#exec-btn').onclick = () => executeExcelCode(code, card.querySelector('#exec-btn'));
         bubble.appendChild(card);
       }
 
@@ -216,19 +214,25 @@
     }
 
     async function executeExcelCode(code, btn) {
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running...';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Applying...';
       try {
         await Excel.run(async (context) => {
-          // Create an async function from the AI code
-          const func = new Function('context', `return (async function(context){ ${code} })(context);`);
-          await func(context);
+          const activeSheet = context.workbook.worksheets.getActiveWorksheet();
+          // Wrapper to handle AI code safely
+          const func = new Function('context', 'activeSheet', `
+            return (async function() { 
+              ${code} 
+              await context.sync(); 
+            })();
+          `);
+          await func(context, activeSheet);
           await context.sync();
-          btn.innerHTML = '<i class="fas fa-check"></i> Applied Successfully';
+          btn.innerHTML = '<i class="fas fa-check"></i> Success';
           btn.style.background = "#059669";
         });
       } catch (err) {
-        btn.innerHTML = '<i class="fas fa-times"></i> Logic Error';
-        appendMsg('ai', "Code Execution Error: " + err.message);
+        btn.innerHTML = '<i class="fas fa-times"></i> Error';
+        appendMsg('ai', "Execution Error: " + err.message);
       }
     }
 

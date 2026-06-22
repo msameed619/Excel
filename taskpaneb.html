@@ -34,7 +34,6 @@
     .user { align-self: flex-end; background: var(--user-bubble); color: #064e3b; }
     .ai { align-self: flex-start; background: white; border: 1px solid var(--border); }
 
-    /* Kimi-style Thinking Block */
     .thinking-container {
       background: var(--thinking-bg);
       border-left: 3px solid #9ca3af;
@@ -89,14 +88,18 @@
   </div>
 
   <script>
+    // UPDATE THIS URL FROM KAGGLE EVERY TIME YOU RESTART
     const KAGGLE_URL = "https://able-pieces-eng-jobs.trycloudflare.com"; 
-    const sessionId = "session_" + Math.random().toString(36).substr(2, 9); // Persistent session
+    
+    const sessionId = "session_" + Math.random().toString(36).substr(2, 9);
 
     Office.onReady((info) => {
       if (info.host === Office.HostType.Excel) {
         document.getElementById('send-btn').onclick = send;
         document.getElementById('clear-btn').onclick = () => location.reload();
-        document.getElementById("user-input").onkeydown = (e) => { if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }};
+        document.getElementById("user-input").onkeydown = (e) => { 
+            if(e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+        };
       }
     });
 
@@ -112,15 +115,19 @@
       try {
         await Excel.run(async (context) => {
           const sheet = context.workbook.worksheets.getActiveWorksheet();
+          
+          // FIX: Explicitly load 'name' and 'UsedRange' properties
+          sheet.load("name"); 
           const usedRange = sheet.getUsedRange();
-          usedRange.load(["address", "values"]); // Load whole table context
+          usedRange.load(["address", "values"]); 
+          
+          // CRITICAL: Must sync before accessing sheet.name
           await context.sync();
 
-          // Prepare data preview for the AI (First 5 rows to understand headers)
           const excelContext = {
             activeSheet: sheet.name,
             range: usedRange.address,
-            headers: usedRange.values[0],
+            headers: usedRange.values[0] || [],
             dataPreview: usedRange.values.slice(1, 6)
           };
 
@@ -146,17 +153,25 @@
     }
 
     async function pollStatus(taskId) {
-      const res = await fetch(`${KAGGLE_URL}/status/${taskId}`, { headers: { "cf-bypass-tunnel-reminder": "true" } });
-      const data = await res.json();
+      try {
+        const res = await fetch(`${KAGGLE_URL}/status/${taskId}`, { 
+            headers: { "cf-bypass-tunnel-reminder": "true" } 
+        });
+        const data = await res.json();
 
-      if (data.status === "completed") {
-        updateLoader(false);
-        renderAiResponse(data.response);
-      } else if (data.status === "failed") {
-        updateLoader(false);
-        appendMsg('ai', "Kaggle Error: " + data.error);
-      } else {
-        setTimeout(() => pollStatus(taskId), 3000);
+        if (data.status === "completed") {
+          updateLoader(false);
+          renderAiResponse(data.response);
+        } else if (data.status === "failed") {
+          updateLoader(false);
+          appendMsg('ai', "Agent Logic Error: " + data.error);
+        } else {
+          // Poll every 3 seconds
+          setTimeout(() => pollStatus(taskId), 3000);
+        }
+      } catch (e) {
+          console.log("Polling...");
+          setTimeout(() => pollStatus(taskId), 3000);
       }
     }
 
@@ -165,18 +180,16 @@
       const bubble = document.createElement('div');
       bubble.className = "bubble ai";
 
-      // 1. Handle Thinking Block
-      let thinkingText = "";
+      // 1. Render Thinking Box
       const thinkMatch = fullText.match(/<think>([\s\S]*?)<\/think>/i);
       if (thinkMatch) {
-        thinkingText = thinkMatch[1].trim();
         const thinkDiv = document.createElement('div');
         thinkDiv.className = "thinking-container";
-        thinkDiv.innerHTML = `<i class="fas fa-brain"></i> Thinking: ${thinkingText}`;
+        thinkDiv.innerHTML = `<i class="fas fa-brain"></i> Thinking: ${thinkMatch[1].trim()}`;
         bubble.appendChild(thinkDiv);
       }
 
-      // 2. Handle Logic/Text (Cleaned)
+      // 2. Render Clean Text
       let cleanText = fullText.replace(/<think>[\s\S]*?<\/think>/i, "").replace(/\[START\][\s\S]*?\[END\]/gi, "").trim();
       if (cleanText) {
         const textDiv = document.createElement('div');
@@ -184,17 +197,17 @@
         bubble.appendChild(textDiv);
       }
 
-      // 3. Handle Action Cards (Office.js)
+      // 3. Render Action Card
       const codeMatch = /\[START\]([\s\S]*?)\[END\]/gi.exec(fullText);
       if (codeMatch) {
         const code = codeMatch[1].trim();
         const card = document.createElement('div');
         card.className = "task-card";
         card.innerHTML = `
-          <div style="font-weight:bold; color:var(--primary); font-size:11px;">EXCEL ACTION READY</div>
-          <button class="btn-run" id="run-task-btn">Apply to Worksheet</button>
+          <div style="font-weight:bold; color:var(--primary); font-size:11px; margin-bottom:5px;">AI ACTION READY</div>
+          <button class="btn-run" id="apply-code-btn">Apply to Sheet</button>
         `;
-        card.querySelector('#run-task-btn').onclick = () => executeExcelCode(code, card.querySelector('#run-task-btn'));
+        card.querySelector('#apply-code-btn').onclick = () => executeExcelCode(code, card.querySelector('#apply-code-btn'));
         bubble.appendChild(card);
       }
 
@@ -203,9 +216,10 @@
     }
 
     async function executeExcelCode(code, btn) {
-      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Applying...';
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running...';
       try {
         await Excel.run(async (context) => {
+          // Create an async function from the AI code
           const func = new Function('context', `return (async function(context){ ${code} })(context);`);
           await func(context);
           await context.sync();
@@ -213,8 +227,8 @@
           btn.style.background = "#059669";
         });
       } catch (err) {
-        btn.innerHTML = '<i class="fas fa-times"></i> Code Error';
-        console.error(err);
+        btn.innerHTML = '<i class="fas fa-times"></i> Logic Error';
+        appendMsg('ai', "Code Execution Error: " + err.message);
       }
     }
 
